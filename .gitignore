@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# PyTorch model weights
+models/*.pt
+models/*.pth
+models/*.ckpt
+models/*.bin
+!models/.gitkeep
+
+# Data — large video / annotation files should not go into git
+data/videos/
+data/frames/
+data/soccernet_detection/
+data/soccernet_jersey/
+data/soccernet_actions/
+data/cache/
+!data/README.md
+
+# Outputs & logs
+outputs/
+logs/
+!outputs/.gitkeep
+!logs/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment secrets
+.env
+*.env
+
+# Coverage / testing
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Weights & Biases / MLflow
+wandb/
+mlruns/
