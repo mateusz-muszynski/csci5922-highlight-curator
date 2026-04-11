@@ -249,15 +249,18 @@ def train(args: argparse.Namespace) -> None:
     # ── Quick-test overrides ─────────────────────────────────────────────
     if args.quick_test:
         print("[train_scorer_lstm] QUICK-TEST mode.")
-        epochs     = scfg["quick_test_epochs"]
-        batch_size = scfg["quick_test_batch_size"]
-        max_clips  = scfg["quick_test_clips"]
+        epochs      = scfg["quick_test_epochs"]
+        batch_size  = scfg["quick_test_batch_size"]
+        max_clips   = scfg["quick_test_clips"]
+        clip_length = scfg.get("quick_test_clip_length", 16)
+        # Force CPU on quick-test to avoid MPS/CUDA OOM with large ResNet-50 batches
+        device = "cpu"
+        print(f"[train_scorer_lstm] Quick-test: clip_length={clip_length}, device=cpu")
     else:
-        epochs     = args.epochs or scfg["epochs"]
-        batch_size = scfg["batch_size"]
-        max_clips  = None
-
-    clip_length = scfg["clip_length_frames"]
+        epochs      = args.epochs or scfg["epochs"]
+        batch_size  = scfg["batch_size"]
+        max_clips   = None
+        clip_length = scfg["clip_length_frames"]
     data_dir    = args.data_dir or scfg["data_dir"]
 
     # ── Dataset ──────────────────────────────────────────────────────────

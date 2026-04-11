@@ -145,8 +145,9 @@ training:
     save_path: "models/scorer_lstm.pt"
     # Quick-test overrides
     quick_test_epochs: 2
-    quick_test_clips: 100
-    quick_test_batch_size: 4
+    quick_test_clips: 20
+    quick_test_batch_size: 1          # 1 clip at a time to stay within MPS RAM
+    quick_test_clip_length: 16        # shorten sequences to 16 frames (vs 90)
 
 # ---------------------------------------------------------------------------
 # Shared paths

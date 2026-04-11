@@ -38,6 +38,7 @@ import torchvision.models as tv_models
 from PIL import Image
 from tqdm import tqdm
 
+from src.jersey_reader import JerseyCNN
 from src.utils import load_config, get_device
 
 
@@ -135,18 +136,11 @@ def make_transforms(
 
 
 # ---------------------------------------------------------------------------
-# Model factory
+# Model factory — uses JerseyCNN so saved keys match JerseyReader.load
 # ---------------------------------------------------------------------------
 
 def build_model(num_classes: int = 100) -> nn.Module:
-    weights = tv_models.ResNet18_Weights.DEFAULT
-    model = tv_models.resnet18(weights=weights)
-    in_features = model.fc.in_features
-    model.fc = nn.Sequential(
-        nn.Dropout(p=0.40),
-        nn.Linear(in_features, num_classes),
-    )
-    return model
+    return JerseyCNN(num_classes=num_classes, pretrained=True)
 
 
 # ---------------------------------------------------------------------------
