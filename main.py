@@ -46,9 +46,18 @@ def run_pipeline(
     conf_override: Optional[float] = None,
     highlight_thresh_override: Optional[float] = None,
     debug_video: Optional[str] = None,
+    frame_skip: int = 1,
+    clip_length_override: Optional[int] = None,
+    clip_stride_override: Optional[int] = None,
 ) -> str:
     """
     Execute the four-stage pipeline end-to-end.
+
+    Parameters
+    ----------
+    frame_skip : int
+        Process every Nth frame (1 = every frame, 3 = every 3rd frame).
+        Useful for long videos on CPU — set to 2 or 3 to run ~3x faster.
 
     Returns
     -------
@@ -99,8 +108,8 @@ def run_pipeline(
         hidden_dim=sc_cfg["hidden_dim"],
         num_layers=sc_cfg["num_layers"],
         dropout=sc_cfg["dropout"],
-        clip_length_frames=sc_cfg["clip_length_frames"],
-        clip_stride_frames=sc_cfg["clip_stride_frames"],
+        clip_length_frames=clip_length_override or sc_cfg["clip_length_frames"],
+        clip_stride_frames=clip_stride_override or sc_cfg["clip_stride_frames"],
         highlight_threshold=highlight_thresh_override or sc_cfg["highlight_threshold"],
         ball_proximity_boost=sc_cfg["ball_proximity_boost"],
         attacking_third_boost=sc_cfg["attacking_third_boost"],
@@ -112,9 +121,13 @@ def run_pipeline(
     )
 
     # ── Pass 1: Detect → Read → Track ────────────────────────────────────
-    print(f"\n[Pipeline] Pass 1 — Detect / Read / Track  (jersey #{jersey_number})")
+    if frame_skip > 1:
+        print(f"\n[Pipeline] Pass 1 — Detect / Read / Track  (jersey #{jersey_number}, every {frame_skip}th frame)")
+    else:
+        print(f"\n[Pipeline] Pass 1 — Detect / Read / Track  (jersey #{jersey_number})")
 
     track_history: Dict[int, List[TrackedPlayer]] = defaultdict(list)
+    jersey_counter: Dict[int, int] = defaultdict(int)
     debug_writer: Optional[VideoWriter] = None
 
     with VideoReader(video_path) as vr:
@@ -124,6 +137,10 @@ def run_pipeline(
 
         with Timer("Pass 1 (detect+track)") as t1:
             for frame_idx, frame in tqdm(vr, total=total, desc="  frames"):
+                # Skip frames for speed on long videos
+                if frame_skip > 1 and frame_idx % frame_skip != 0:
+                    continue
+
                 # Stage 1
                 detections = detector.detect(frame)
 
@@ -133,6 +150,8 @@ def run_pipeline(
                     crop = detector.crop_upper_body(frame, det)
                     number, conf = reader.read(crop)
                     jersey_reads.append((number, conf))
+                    if number is not None:
+                        jersey_counter[number] += 1
 
                 # Stage 3
                 players = tracker.update(detections, jersey_reads, frame_idx)
@@ -145,6 +164,12 @@ def run_pipeline(
 
     if debug_writer is not None:
         debug_writer.__exit__(None, None, None)
+
+    # Print jersey number sighting summary
+    if jersey_counter:
+        top = sorted(jersey_counter.items(), key=lambda x: -x[1])[:10]
+        print(f"\n  Jersey sightings (top 10): " +
+              "  ".join(f"#{n}={c}" for n, c in top))
 
     target_frames = sum(
         1
@@ -209,6 +234,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Override LSTM highlight score threshold")
     p.add_argument("--debug",   default=None, metavar="PATH",
                    help="Write a debug video with bounding-box overlays")
+    p.add_argument("--frame-skip", type=int, default=1, dest="frame_skip",
+                   help="Process every Nth frame (default 1=all). Use 3 for ~3x speedup on CPU.")
+    p.add_argument("--clip-length", type=int, default=None, dest="clip_length",
+                   help="Override LSTM clip length in frames (default from config)")
+    p.add_argument("--clip-stride", type=int, default=None, dest="clip_stride",
+                   help="Override LSTM clip stride in frames (default from config)")
     return p
 
 
@@ -223,4 +254,7 @@ if __name__ == "__main__":
         conf_override=args.conf,
         highlight_thresh_override=args.highlight_thresh,
         debug_video=args.debug,
+        frame_skip=args.frame_skip,
+        clip_length_override=args.clip_length,
+        clip_stride_override=args.clip_stride,
     )
