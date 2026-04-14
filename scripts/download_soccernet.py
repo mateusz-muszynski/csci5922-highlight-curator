@@ -84,6 +84,20 @@ def download_jersey(data_dir: Path, username: str, password: str) -> None:
     mySN.downloadDataTask(task="jersey-2023", split=["train"], verbose=True)
     print(f"[download] Raw download complete → {dest}")
 
+    # ── Extract any zip files that SoccerNetDownloader left on disk ───────
+    # The downloader skips re-downloading if the zip already exists but does
+    # NOT extract it — do that manually here.
+    import zipfile
+    for zip_path in sorted(dest.rglob("*.zip")):
+        extract_dir = zip_path.parent / zip_path.stem
+        if not extract_dir.exists():
+            print(f"[download] Extracting {zip_path.name} ...")
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(zip_path.parent)
+            print(f"[download] Extracted → {extract_dir}")
+        else:
+            print(f"[download] Already extracted: {zip_path.name}")
+
     # ── Normalise folder structure ────────────────────────────────────────
     # Walk the download tree; any directory whose name parses as 00–99
     # and contains images is a class dir.  Move images up to dest/<label>/.
