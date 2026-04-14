@@ -66,10 +66,17 @@ def run_pipeline(
     cfg    = load_config(config_path)
     device = device or get_device()
 
+    # Resolve all model paths relative to the config file's directory so the
+    # pipeline works regardless of the caller's working directory.
+    cfg_dir = Path(config_path).resolve().parent
+    def _abs(rel: str) -> str:
+        p = Path(rel)
+        return str(p) if p.is_absolute() else str(cfg_dir / p)
+
     # ── Build models ─────────────────────────────────────────────────────
     det_cfg = cfg["detector"]
     detector = PlayerDetector(
-        model_path=det_cfg["model_path"],
+        model_path=_abs(det_cfg["model_path"]),
         conf_threshold=conf_override or det_cfg["conf_threshold"],
         iou_threshold=det_cfg["iou_threshold"],
         player_class_id=det_cfg["player_class_id"],
@@ -79,7 +86,7 @@ def run_pipeline(
 
     jr_cfg = cfg["jersey_reader"]
     reader = JerseyReader(
-        model_path=jr_cfg["model_path"],
+        model_path=_abs(jr_cfg["model_path"]),
         num_classes=jr_cfg["num_classes"],
         input_size=tuple(jr_cfg["input_size"]),
         conf_threshold=jr_cfg["conf_threshold"],
@@ -103,7 +110,7 @@ def run_pipeline(
     sc_cfg = cfg["scorer"]
     vc_cfg = cfg["video"]
     scorer = HighlightScorer(
-        model_path=sc_cfg["model_path"],
+        model_path=_abs(sc_cfg["model_path"]),
         feature_dim=sc_cfg["feature_dim"],
         hidden_dim=sc_cfg["hidden_dim"],
         num_layers=sc_cfg["num_layers"],
