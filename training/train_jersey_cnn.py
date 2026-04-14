@@ -42,6 +42,17 @@ from src.jersey_reader import JerseyCNN
 from src.utils import load_config, get_device
 
 
+def _generate_stubs(data_dir: str, num_classes: int, images_per_class: int) -> None:
+    """Generate PIL-rendered jersey stubs if not already present."""
+    from pathlib import Path
+    from scripts.download_soccernet import create_synthetic_stubs
+    create_synthetic_stubs(
+        Path(data_dir),
+        images_per_class=images_per_class,
+        num_classes=num_classes,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dataset
 # ---------------------------------------------------------------------------
@@ -139,8 +150,8 @@ def make_transforms(
 # Model factory — uses JerseyCNN so saved keys match JerseyReader.load
 # ---------------------------------------------------------------------------
 
-def build_model(num_classes: int = 100) -> nn.Module:
-    return JerseyCNN(num_classes=num_classes, pretrained=True)
+def build_model(num_classes: int = 100, backbone_name: str = "resnet34") -> nn.Module:
+    return JerseyCNN(num_classes=num_classes, pretrained=True, backbone_name=backbone_name)
 
 
 # ---------------------------------------------------------------------------
@@ -219,17 +230,30 @@ def train(args: argparse.Namespace) -> None:
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ── Mode overrides ───────────────────────────────────────────────────
-    kaggle_mode = getattr(args, "kaggle", False)
+    kaggle_mode      = getattr(args, "kaggle",      False)
+    kaggle_full_mode = getattr(args, "kaggle_full", False)
+
     if args.quick_test:
         print("[train_jersey_cnn] QUICK-TEST mode (CPU smoke-test).")
         epochs      = jcfg["quick_test_epochs"]
         batch_size  = jcfg["quick_test_batch_size"]
         max_samples = jcfg["quick_test_samples"]
+        _generate_stubs(data_dir,
+                        num_classes=jcfg.get("quick_test_num_classes", 10),
+                        images_per_class=jcfg.get("quick_test_images_per_class", 40))
     elif kaggle_mode:
-        print("[train_jersey_cnn] KAGGLE mode — all 100 classes, more epochs.")
-        epochs      = jcfg.get("kaggle_epochs", 15)
+        print("[train_jersey_cnn] KAGGLE mode — 100 classes × 500 imgs, 20 epochs (GPU).")
+        epochs      = jcfg.get("kaggle_epochs", 20)
         batch_size  = jcfg.get("kaggle_batch_size", 64)
-        max_samples = jcfg.get("kaggle_samples", 5000)
+        max_samples = None
+        _generate_stubs(data_dir,
+                        num_classes=jcfg.get("kaggle_num_classes", 100),
+                        images_per_class=jcfg.get("kaggle_images_per_class", 500))
+    elif kaggle_full_mode:
+        print("[train_jersey_cnn] KAGGLE-FULL mode — real SoccerNet data.")
+        epochs     = jcfg.get("full_epochs", 50)
+        batch_size = jcfg.get("full_batch_size", 64)
+        max_samples = None
     else:
         epochs      = args.epochs or jcfg["epochs"]
         batch_size  = jcfg["batch_size"]
@@ -273,8 +297,11 @@ def train(args: argparse.Namespace) -> None:
     )
 
     # ── Model / optimiser ────────────────────────────────────────────────
-    model     = build_model(num_classes=num_classes).to(device)
-    criterion = nn.CrossEntropyLoss()
+    backbone_name = jcfg.get("backbone", "resnet34")
+    model     = build_model(num_classes=num_classes, backbone_name=backbone_name).to(device)
+    label_smoothing = jcfg.get("label_smoothing", 0.10)
+    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+    print(f"[train_jersey_cnn] backbone={backbone_name} | label_smoothing={label_smoothing}")
     optimizer = optim.AdamW(
         model.parameters(),
         lr=jcfg["lr"],
@@ -331,7 +358,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--data-dir", dest="data_dir", default=None)
     p.add_argument("--quick-test", action="store_true")
     p.add_argument("--kaggle", action="store_true",
-                   help="GPU training on PIL-rendered synthetic data (all 100 classes)")
+                   help="GPU: 100 classes × 500 PIL-rendered images, 20 epochs (~15 min T4)")
+    p.add_argument("--kaggle-full", dest="kaggle_full", action="store_true",
+                   help="GPU: real SoccerNet jersey data, 50 epochs (hours, best accuracy)")
     return p
 
 

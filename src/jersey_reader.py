@@ -22,17 +22,35 @@ import cv2
 
 class JerseyCNN(nn.Module):
     """
-    ResNet-18 backbone with a linear head that predicts one of 100 digit-pair
-    classes (00, 01, … 99).
+    Configurable ResNet backbone with a linear head for 100 digit-pair classes.
+
+    backbone_name : "resnet34" (default) | "resnet18"
+        resnet34 has the same 512-d feature vector as resnet18 but deeper
+        residual blocks — meaningfully better on small datasets like synthetic
+        jersey crops. Weight keys are identical in structure so the same
+        _weights_valid() prefix check applies to both.
     """
 
-    def __init__(self, num_classes: int = 100, pretrained: bool = True) -> None:
+    _BACKBONE_MAP = {
+        "resnet18": (tv_models.resnet18, tv_models.ResNet18_Weights.DEFAULT),
+        "resnet34": (tv_models.resnet34, tv_models.ResNet34_Weights.DEFAULT),
+    }
+
+    def __init__(
+        self,
+        num_classes: int = 100,
+        pretrained: bool = True,
+        backbone_name: str = "resnet34",
+    ) -> None:
         super().__init__()
-        weights = tv_models.ResNet18_Weights.DEFAULT if pretrained else None
-        backbone = tv_models.resnet18(weights=weights)
+        if backbone_name not in self._BACKBONE_MAP:
+            raise ValueError(f"backbone_name must be one of {list(self._BACKBONE_MAP)}")
+        factory, default_weights = self._BACKBONE_MAP[backbone_name]
+        weights = default_weights if pretrained else None
+        backbone = factory(weights=weights)
         in_features = backbone.fc.in_features
         backbone.fc = nn.Sequential(
-            nn.Dropout(p=0.40),
+            nn.Dropout(p=0.35),
             nn.Linear(in_features, num_classes),
         )
         self.backbone = backbone
@@ -91,7 +109,7 @@ class JerseyReader:
         self.color_hint = color_hint  # "dark" | "light" | None
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.model = JerseyCNN(num_classes=num_classes, pretrained=False)
+        self.model = JerseyCNN(num_classes=num_classes, pretrained=False, backbone_name="resnet34")
         model_file = Path(model_path)
         if model_file.exists():
             state = torch.load(model_file, map_location=self.device)

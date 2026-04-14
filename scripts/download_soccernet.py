@@ -95,6 +95,27 @@ def download_actions(data_dir: Path, username: str, password: str) -> None:
 # Synthetic stub creator (for quick-test with no credentials)
 # ---------------------------------------------------------------------------
 
+# Candidate system font paths searched in order (Kaggle/Ubuntu first, macOS fallback)
+_FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/Library/Fonts/Arial Bold.ttf",
+]
+
+
+def _load_font(size: int) -> "ImageFont.FreeTypeFont | ImageFont.ImageFont":
+    """Return the first available TrueType font at *size*, else PIL default."""
+    from PIL import ImageFont
+    for path in _FONT_CANDIDATES:
+        try:
+            return ImageFont.truetype(path, size)
+        except (IOError, OSError):
+            pass
+    return ImageFont.load_default()
+
+
 def _render_jersey_crop(
     number: int,
     width: int = 64,
@@ -103,104 +124,200 @@ def _render_jersey_crop(
     rng: "np.random.Generator | None" = None,
 ) -> "Image.Image":
     """
-    Render a synthetic jersey-number crop using PIL.
+    Render one synthetic jersey-number crop with heavy photometric and
+    geometric augmentation so the CNN sees realistic training samples.
 
-    The image mimics a player torso crop: a solid-colour jersey background
-    with a two-digit number drawn in a contrasting colour, plus small amounts
-    of noise, blur, and random rotation to create variety.
+    Augmentations applied per image:
+    - Varied jersey colours (team-kit palettes: navy, red, green, black,
+      white, yellow, grey)
+    - Font-size jitter ±20 %
+    - Random translation within the torso band
+    - Rotation ±15°
+    - Perspective warp (simulates off-axis camera angle)
+    - Gaussian blur (camera softness / motion blur)
+    - Pixel noise
+    - Brightness / contrast jitter
+    - Optional occlusion patch (simulates arm in front of number)
     """
     import numpy as np
-    from PIL import Image, ImageDraw, ImageFilter
+    from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 
     if rng is None:
         rng = np.random.default_rng()
 
-    # Jersey background colour
-    if dark_bg:
-        r = int(rng.integers(0, 70))
-        g = int(rng.integers(0, 70))
-        b = int(rng.integers(30, 120))
-    else:
-        r = int(rng.integers(180, 255))
-        g = int(rng.integers(180, 255))
-        b = int(rng.integers(180, 255))
-    bg_color = (r, g, b)
+    # ── Jersey background: realistic kit colours ──────────────────────────
+    DARK_PALETTES = [
+        (10, 20, 80),    # navy blue
+        (120, 20, 20),   # red / maroon
+        (10, 80, 20),    # dark green
+        (20, 20, 20),    # black
+        (80, 40, 10),    # dark brown / bronze
+        (60, 0, 90),     # purple
+    ]
+    LIGHT_PALETTES = [
+        (240, 240, 240), # white
+        (240, 220, 30),  # yellow
+        (200, 230, 255), # light blue
+        (240, 200, 200), # light red / pink
+        (180, 240, 180), # light green
+    ]
 
-    # Number colour (contrasting)
-    if dark_bg:
-        fg_color = (
-            int(rng.integers(200, 255)),
-            int(rng.integers(200, 255)),
-            int(rng.integers(200, 255)),
-        )
-    else:
-        fg_color = (
-            int(rng.integers(0, 60)),
-            int(rng.integers(0, 60)),
-            int(rng.integers(0, 60)),
-        )
+    palette = DARK_PALETTES if dark_bg else LIGHT_PALETTES
+    base_color = palette[int(rng.integers(len(palette)))]
+    # Add per-image colour jitter
+    bg_color = tuple(
+        int(np.clip(c + int(rng.integers(-20, 21)), 0, 255)) for c in base_color
+    )
 
-    img = Image.new("RGB", (width, height), color=bg_color)
+    # ── Number (foreground) colour: high contrast with background ─────────
+    if dark_bg:
+        fg_base = (240, 240, 240)
+        # Occasionally use gold/yellow numbers (common on dark kits)
+        if rng.random() < 0.2:
+            fg_base = (255, 215, 0)
+    else:
+        fg_base = (20, 20, 20)
+        if rng.random() < 0.15:
+            fg_base = (180, 0, 0)  # red numbers on white kits
+    fg_color = tuple(
+        int(np.clip(c + int(rng.integers(-15, 16)), 0, 255)) for c in fg_base
+    )
+
+    # ── Render on a larger canvas then crop, to allow rotation headroom ───
+    canvas_w, canvas_h = width * 2, height * 2
+    img = Image.new("RGB", (canvas_w, canvas_h), color=bg_color)
     draw = ImageDraw.Draw(img)
 
-    # Draw the two-digit number centred in the torso band (y 30–80% of height)
     text = f"{number:02d}"
-    font_size = max(20, int(height * 0.30) + int(rng.integers(-4, 5)))
-    # PIL's built-in bitmap font is always available; use it for portability
-    try:
-        from PIL import ImageFont
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-    except (IOError, OSError):
-        font = ImageFont.load_default()
+    # Font size: base ~30 % of height with ±20 % jitter
+    base_font_size = max(18, int(height * 0.30))
+    font_size = int(base_font_size * rng.uniform(0.80, 1.25))
+    font = _load_font(font_size)
 
-    # Get text bounding box for centring
+    # Centre text in canvas with translation jitter
     bbox = draw.textbbox((0, 0), text, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    x = (width - tw) // 2 + int(rng.integers(-4, 5))
-    y = int(height * 0.35) + int(rng.integers(-6, 7))
-    draw.text((x, y), text, fill=fg_color, font=font)
+    cx = (canvas_w - tw) // 2 + int(rng.integers(-8, 9))
+    cy = int(canvas_h * 0.40) + int(rng.integers(-10, 11))
+    draw.text((cx, cy), text, fill=fg_color, font=font)
 
-    # Light Gaussian blur to simulate camera softness
-    if rng.random() > 0.5:
-        img = img.filter(ImageFilter.GaussianBlur(radius=rng.uniform(0.3, 1.2)))
+    # ── Geometric augmentation ────────────────────────────────────────────
+    # Rotation ±15°
+    angle = float(rng.uniform(-15, 15))
+    img = img.rotate(angle, resample=Image.BILINEAR, fillcolor=bg_color)
 
-    # Add pixel noise
+    # Perspective warp (simulate camera tilt): only with TrueType font renders
+    if rng.random() < 0.5:
+        w, h = img.size
+        d = int(rng.integers(0, max(1, w // 8)))
+        side = int(rng.integers(0, 2))  # 0 = left tilt, 1 = right tilt
+        if side == 0:
+            coeffs = (0, d, 0, 0, w, h - d, w, h)
+        else:
+            coeffs = (0, 0, 0, d, w, h, w, h - d)
+        # PIL perspective uses an 8-coefficient flat transform
+        img = img.transform(
+            img.size, Image.PERSPECTIVE,
+            _perspective_coeffs(
+                [(0, 0), (w, 0), (w, h), (0, h)],
+                [(d if side else 0, 0),
+                 (w - (0 if side else d), 0),
+                 (w - (d if side else 0), h),
+                 (0 if side else d, h)],
+            ),
+            resample=Image.BILINEAR,
+            fillcolor=bg_color,
+        )
+
+    # Crop back to target size from the centre of the canvas
+    left = (canvas_w - width) // 2
+    top  = (canvas_h - height) // 2
+    img  = img.crop((left, top, left + width, top + height))
+
+    # ── Photometric augmentation ──────────────────────────────────────────
+    # Gaussian blur
+    if rng.random() < 0.6:
+        radius = float(rng.uniform(0.3, 1.8))
+        img = img.filter(ImageFilter.GaussianBlur(radius=radius))
+
+    # Brightness / contrast jitter
+    img = ImageEnhance.Brightness(img).enhance(float(rng.uniform(0.7, 1.3)))
+    img = ImageEnhance.Contrast(img).enhance(float(rng.uniform(0.7, 1.4)))
+
+    # Pixel noise
     arr = np.array(img, dtype=np.int16)
-    noise = rng.integers(-15, 16, size=arr.shape, dtype=np.int16)
+    noise = rng.integers(-20, 21, size=arr.shape, dtype=np.int16)
     arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
     img = Image.fromarray(arr)
+
+    # Occlusion: small dark rectangle simulating an arm/shadow (10 % chance)
+    if rng.random() < 0.10:
+        draw2 = ImageDraw.Draw(img)
+        ox = int(rng.integers(0, width - width // 4))
+        oy = int(rng.integers(0, height - height // 4))
+        ow = int(rng.integers(width // 6, width // 3))
+        oh = int(rng.integers(height // 8, height // 4))
+        draw2.rectangle([ox, oy, ox + ow, oy + oh], fill=(0, 0, 0))
 
     return img
 
 
+def _perspective_coeffs(
+    src: list,
+    dst: list,
+) -> tuple:
+    """
+    Compute the 8 coefficients for PIL's PERSPECTIVE transform.
+    src / dst are lists of 4 (x, y) corner points (top-left, top-right,
+    bottom-right, bottom-left).
+    """
+    import numpy as np
+
+    matrix = []
+    for (x, y), (X, Y) in zip(src, dst):
+        matrix.append([x, y, 1, 0, 0, 0, -X * x, -X * y])
+        matrix.append([0, 0, 0, x, y, 1, -Y * x, -Y * y])
+    A = np.matrix(matrix, dtype=np.float64)
+    B = np.array([X for (_, _), (X, _) in zip(src, dst)] +
+                 [Y for (_, _), (_, Y) in zip(src, dst)], dtype=np.float64)
+    # Interleave X / Y correctly
+    B = []
+    for (_, _), (X, Y) in zip(src, dst):
+        B.extend([X, Y])
+    B = np.array(B, dtype=np.float64)
+    res = np.linalg.solve(A, B)
+    return tuple(np.array(res).flatten())
+
+
 def create_synthetic_stubs(
     data_dir: Path,
-    images_per_class: int = 50,
+    images_per_class: int = 500,
     num_classes: int = 100,
 ) -> None:
     """
     Create synthetic stub datasets so training scripts can run without real
     SoccerNet data.
 
-    Jersey CNN stubs use PIL-rendered digit images (actual numbers drawn on
-    coloured backgrounds) so the CNN learns real number patterns rather than
-    random noise.  All 100 classes (00–99) are covered.
+    Jersey CNN stubs use PIL-rendered digit images with heavy augmentation
+    (colour, geometry, blur, noise) so the CNN learns real digit patterns.
 
     Parameters
     ----------
     images_per_class : int
-        Number of synthetic crops to generate per jersey number.
-        Default 50 gives a reasonable balance between training time and quality.
+        Renders per jersey class. 500 is the default (Kaggle GPU mode).
+        Pass 100 for quick-test (< 5 min on GPU).
     num_classes : int
-        Number of jersey classes to generate (up to 100).
+        Jersey classes to cover (0 … num_classes-1). Max 100.
     """
     import numpy as np
     from PIL import Image
 
     rng = np.random.default_rng(42)
+    num_classes = min(num_classes, 100)
 
     print("[stubs] Creating synthetic stub datasets ...")
-    print(f"  Jersey CNN: {num_classes} classes × {images_per_class} images each")
+    print(f"  Jersey CNN: {num_classes} classes × {images_per_class} images each "
+          f"(total {num_classes * images_per_class:,})")
 
     # ── Jersey CNN stubs ─────────────────────────────────────────────────
     jersey_root = data_dir / "soccernet_jersey"
@@ -210,13 +327,14 @@ def create_synthetic_stubs(
         label_dir.mkdir(parents=True, exist_ok=True)
         existing = len(list(label_dir.glob("stub_*.jpg")))
         if existing >= images_per_class:
-            continue  # idempotent — skip if already generated
+            continue  # idempotent
         for i in range(existing, images_per_class):
-            # Alternate dark/light backgrounds for variety
-            dark = (i % 2 == 0)
+            dark = bool(rng.integers(0, 2))   # random dark / light split
             img = _render_jersey_crop(jersey_num, dark_bg=dark, rng=rng)
             img.save(label_dir / f"stub_{i:04d}.jpg")
-    print(f"  Jersey stubs saved → {jersey_root}")
+    total = sum(len(list((jersey_root / f"{n:02d}").glob("stub_*.jpg")))
+                for n in range(num_classes) if (jersey_root / f"{n:02d}").exists())
+    print(f"  Jersey stubs saved → {jersey_root}  ({total:,} images)")
 
     # ── Action spotting (LSTM scorer) stubs ─────────────────────────────
     clips_root = data_dir / "soccernet_actions" / "clips"

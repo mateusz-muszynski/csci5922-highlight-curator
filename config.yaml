@@ -105,32 +105,33 @@ training:
   # Training — Stage 2: Two-digit jersey CNN
   jersey_cnn:
     data_dir: "data/soccernet_jersey"
-    backbone: "resnet18"
+    backbone: "resnet34"                    # resnet34 = better than resnet18, same key structure
     num_classes: 100
     input_size: [64, 128]
     epochs: 30
     batch_size: 64
     lr: 0.001
     weight_decay: 0.0001
-    lr_scheduler: "cosine"                  # cosine annealing
+    lr_scheduler: "cosine"
     val_split: 0.15
     num_workers: 4
-    # Augmentations
-    augment:
-      random_crop: true
-      color_jitter: true
-      horizontal_flip: true
-      gaussian_noise: true
+    label_smoothing: 0.10                   # prevents overconfidence on synthetic data
     log_dir: "logs/jersey_cnn"
     save_path: "models/jersey_cnn.pt"
-    # Quick-test overrides (local CPU smoke-test only — minimal data)
-    quick_test_epochs: 2
-    quick_test_samples: 200
+    # ── quick-test: CPU smoke-test, verifies code runs (< 3 min CPU) ─────
+    quick_test_epochs: 3
+    quick_test_samples: 400                 # 10 classes × 40 images generated on the fly
     quick_test_batch_size: 16
-    # Kaggle synthetic-train overrides (GPU, PIL-rendered digits, all 100 classes)
-    kaggle_epochs: 15
-    kaggle_samples: 5000        # 100 classes × 50 images
+    quick_test_num_classes: 10
+    quick_test_images_per_class: 40
+    # ── kaggle (synthetic GPU): all 100 classes, 500 imgs/class, 20 epochs
+    kaggle_epochs: 20
     kaggle_batch_size: 64
+    kaggle_num_classes: 100
+    kaggle_images_per_class: 500            # 50,000 images total — ~15 min T4
+    # ── kaggle-full: real SoccerNet data (hours, best accuracy) ──────────
+    full_epochs: 50
+    full_batch_size: 64
 
   # Training — Stage 4: ResNet-50 + LSTM scorer
   scorer_lstm:
@@ -148,16 +149,20 @@ training:
     num_workers: 4
     log_dir: "logs/scorer_lstm"
     save_path: "models/scorer_lstm.pt"
-    # Quick-test overrides (local CPU smoke-test)
+    # ── quick-test: CPU smoke-test ────────────────────────────────────────
     quick_test_epochs: 2
-    quick_test_clips: 20
-    quick_test_batch_size: 1          # 1 clip at a time to stay within MPS RAM
-    quick_test_clip_length: 16        # shorten sequences to 16 frames (vs 90)
-    # Kaggle synthetic-train overrides
-    kaggle_epochs: 10
-    kaggle_clips: 100
+    quick_test_clips: 30
+    quick_test_batch_size: 1
+    quick_test_clip_length: 16
+    # ── kaggle (synthetic GPU): more clips, longer sequences ─────────────
+    kaggle_epochs: 15
+    kaggle_clips: 300                       # 300 clips (150 pos / 150 neg)
     kaggle_batch_size: 4
     kaggle_clip_length: 32
+    # ── kaggle-full: real SoccerNet data ─────────────────────────────────
+    full_epochs: 30
+    full_batch_size: 8
+    full_clip_length: 90
 
 # ---------------------------------------------------------------------------
 # Shared paths

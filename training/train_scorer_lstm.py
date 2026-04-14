@@ -44,6 +44,36 @@ from src.scorer import ScorerLSTM
 from src.utils import load_config, get_device
 
 
+def _ensure_scorer_stubs(data_dir: str, n_clips: int, clip_length: int) -> None:
+    """Generate synthetic action-spotting clip stubs if not already present."""
+    import json
+    import numpy as np
+    from pathlib import Path
+    from PIL import Image
+
+    clips_root = Path(data_dir) / "clips"
+    clips_root.mkdir(parents=True, exist_ok=True)
+    existing = len(list(clips_root.iterdir()))
+    if existing >= n_clips:
+        return  # already generated
+
+    rng = np.random.default_rng(99)
+    print(f"[stubs] Generating {n_clips} scorer clips × {clip_length} frames ...")
+    for clip_idx in range(existing, n_clips):
+        clip_dir = clips_root / f"clip_{clip_idx:04d}"
+        clip_dir.mkdir(exist_ok=True)
+        label = clip_idx % 2  # balanced pos/neg
+        (clip_dir / "label.json").write_text(json.dumps({"label": label}))
+        for fi in range(clip_length):
+            # Positive clips: brighter, more motion-like patterns
+            if label == 1:
+                arr = rng.integers(60, 220, (224, 224, 3), dtype=np.uint8)
+            else:
+                arr = rng.integers(20, 160, (224, 224, 3), dtype=np.uint8)
+            Image.fromarray(arr).save(clip_dir / f"frame_{fi:04d}.jpg")
+    print(f"[stubs] Scorer stubs ready: {clips_root}")
+
+
 # ---------------------------------------------------------------------------
 # Dataset
 # ---------------------------------------------------------------------------
@@ -247,23 +277,33 @@ def train(args: argparse.Namespace) -> None:
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ── Mode overrides ───────────────────────────────────────────────────
-    kaggle_mode = getattr(args, "kaggle", False)
+    kaggle_mode      = getattr(args, "kaggle",      False)
+    kaggle_full_mode = getattr(args, "kaggle_full", False)
+
     if args.quick_test:
         print("[train_scorer_lstm] QUICK-TEST mode (CPU smoke-test).")
         epochs      = scfg["quick_test_epochs"]
         batch_size  = scfg["quick_test_batch_size"]
         max_clips   = scfg["quick_test_clips"]
         clip_length = scfg.get("quick_test_clip_length", 16)
-        # Force CPU on quick-test to avoid MPS/CUDA OOM with large ResNet-50 batches
-        device = "cpu"
+        device      = "cpu"
         print(f"[train_scorer_lstm] Quick-test: clip_length={clip_length}, device=cpu")
+        _ensure_scorer_stubs(data_dir, n_clips=scfg["quick_test_clips"],
+                             clip_length=clip_length)
     elif kaggle_mode:
-        print("[train_scorer_lstm] KAGGLE mode — more clips, longer sequences.")
-        epochs      = scfg.get("kaggle_epochs", 10)
+        print("[train_scorer_lstm] KAGGLE mode — 300 clips, 32-frame sequences (GPU).")
+        epochs      = scfg.get("kaggle_epochs", 15)
         batch_size  = scfg.get("kaggle_batch_size", 4)
-        max_clips   = scfg.get("kaggle_clips", 100)
+        max_clips   = scfg.get("kaggle_clips", 300)
         clip_length = scfg.get("kaggle_clip_length", 32)
         print(f"[train_scorer_lstm] Kaggle: clip_length={clip_length}, device={device}")
+        _ensure_scorer_stubs(data_dir, n_clips=max_clips, clip_length=clip_length)
+    elif kaggle_full_mode:
+        print("[train_scorer_lstm] KAGGLE-FULL mode — real SoccerNet action data.")
+        epochs      = scfg.get("full_epochs", 30)
+        batch_size  = scfg.get("full_batch_size", 8)
+        max_clips   = None
+        clip_length = scfg.get("full_clip_length", 90)
     else:
         epochs      = args.epochs or scfg["epochs"]
         batch_size  = scfg["batch_size"]
@@ -369,7 +409,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--data-dir", dest="data_dir", default=None)
     p.add_argument("--quick-test", action="store_true")
     p.add_argument("--kaggle", action="store_true",
-                   help="GPU training with more clips and longer sequences")
+                   help="GPU: 300 synthetic clips, 32-frame sequences, 15 epochs")
+    p.add_argument("--kaggle-full", dest="kaggle_full", action="store_true",
+                   help="GPU: real SoccerNet action spotting data, 30 epochs")
     return p
 
 

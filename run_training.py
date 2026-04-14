@@ -45,24 +45,22 @@ def run_stage_yolo(args: argparse.Namespace) -> None:
 
 def run_stage_jersey(args: argparse.Namespace) -> None:
     from training.train_jersey_cnn import train, build_parser as jersey_parser
-    sub = jersey_parser().parse_args([
-        "--config", args.config,
-        *(["--quick-test"] if args.quick_test else []),
-        *(["--kaggle"]     if getattr(args, "kaggle", False) else []),
-        *(["--device", args.device] if args.device else []),
-    ])
-    train(sub)
+    flags = ["--config", args.config]
+    if args.quick_test:            flags.append("--quick-test")
+    elif getattr(args, "kaggle_full", False): flags.append("--kaggle-full")
+    elif getattr(args, "kaggle", False):      flags.append("--kaggle")
+    if args.device:                flags += ["--device", args.device]
+    train(jersey_parser().parse_args(flags))
 
 
 def run_stage_scorer(args: argparse.Namespace) -> None:
     from training.train_scorer_lstm import train, build_parser as scorer_parser
-    sub = scorer_parser().parse_args([
-        "--config", args.config,
-        *(["--quick-test"] if args.quick_test else []),
-        *(["--kaggle"]     if getattr(args, "kaggle", False) else []),
-        *(["--device", args.device] if args.device else []),
-    ])
-    train(sub)
+    flags = ["--config", args.config]
+    if args.quick_test:            flags.append("--quick-test")
+    elif getattr(args, "kaggle_full", False): flags.append("--kaggle-full")
+    elif getattr(args, "kaggle", False):      flags.append("--kaggle")
+    if args.device:                flags += ["--device", args.device]
+    train(scorer_parser().parse_args(flags))
 
 
 STAGE_FNS = {
@@ -137,7 +135,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--kaggle", action="store_true",
-        help="GPU training on PIL-rendered synthetic data — all 100 classes, more epochs",
+        help="GPU: PIL-rendered synthetic data, all 100 classes (~15 min T4)",
+    )
+    p.add_argument(
+        "--kaggle-full", dest="kaggle_full", action="store_true",
+        help="GPU: real SoccerNet data (hours). Requires --soccernet-user / --soccernet-pass.",
     )
     p.add_argument(
         "--fail-fast", action="store_true",
