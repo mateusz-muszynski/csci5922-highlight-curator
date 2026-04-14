@@ -131,7 +131,7 @@ training:
     kaggle_images_per_class: 500            # 50,000 images total — ~15 min T4
     # ── kaggle-full: real SoccerNet data (hours, best accuracy) ──────────
     full_epochs: 50
-    full_batch_size: 64
+    full_batch_size: 32
 
   # Training — Stage 4: ResNet-50 + LSTM scorer
   scorer_lstm:
@@ -161,7 +161,7 @@ training:
     kaggle_clip_length: 16                  # 16 frames × batch 2 = safe on T4
     # ── kaggle-full: real SoccerNet data ─────────────────────────────────
     full_epochs: 30
-    full_batch_size: 8
+    full_batch_size: 4
     full_clip_length: 90
 
 # ---------------------------------------------------------------------------
