@@ -123,10 +123,14 @@ training:
       gaussian_noise: true
     log_dir: "logs/jersey_cnn"
     save_path: "models/jersey_cnn.pt"
-    # Quick-test overrides
+    # Quick-test overrides (local CPU smoke-test only — minimal data)
     quick_test_epochs: 2
-    quick_test_samples: 500
+    quick_test_samples: 200
     quick_test_batch_size: 16
+    # Kaggle synthetic-train overrides (GPU, PIL-rendered digits, all 100 classes)
+    kaggle_epochs: 15
+    kaggle_samples: 5000        # 100 classes × 50 images
+    kaggle_batch_size: 64
 
   # Training — Stage 4: ResNet-50 + LSTM scorer
   scorer_lstm:
@@ -144,11 +148,16 @@ training:
     num_workers: 4
     log_dir: "logs/scorer_lstm"
     save_path: "models/scorer_lstm.pt"
-    # Quick-test overrides
+    # Quick-test overrides (local CPU smoke-test)
     quick_test_epochs: 2
     quick_test_clips: 20
     quick_test_batch_size: 1          # 1 clip at a time to stay within MPS RAM
     quick_test_clip_length: 16        # shorten sequences to 16 frames (vs 90)
+    # Kaggle synthetic-train overrides
+    kaggle_epochs: 10
+    kaggle_clips: 100
+    kaggle_batch_size: 4
+    kaggle_clip_length: 32
 
 # ---------------------------------------------------------------------------
 # Shared paths

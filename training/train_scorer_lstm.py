@@ -246,9 +246,10 @@ def train(args: argparse.Namespace) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # ── Quick-test overrides ─────────────────────────────────────────────
+    # ── Mode overrides ───────────────────────────────────────────────────
+    kaggle_mode = getattr(args, "kaggle", False)
     if args.quick_test:
-        print("[train_scorer_lstm] QUICK-TEST mode.")
+        print("[train_scorer_lstm] QUICK-TEST mode (CPU smoke-test).")
         epochs      = scfg["quick_test_epochs"]
         batch_size  = scfg["quick_test_batch_size"]
         max_clips   = scfg["quick_test_clips"]
@@ -256,6 +257,13 @@ def train(args: argparse.Namespace) -> None:
         # Force CPU on quick-test to avoid MPS/CUDA OOM with large ResNet-50 batches
         device = "cpu"
         print(f"[train_scorer_lstm] Quick-test: clip_length={clip_length}, device=cpu")
+    elif kaggle_mode:
+        print("[train_scorer_lstm] KAGGLE mode — more clips, longer sequences.")
+        epochs      = scfg.get("kaggle_epochs", 10)
+        batch_size  = scfg.get("kaggle_batch_size", 4)
+        max_clips   = scfg.get("kaggle_clips", 100)
+        clip_length = scfg.get("kaggle_clip_length", 32)
+        print(f"[train_scorer_lstm] Kaggle: clip_length={clip_length}, device={device}")
     else:
         epochs      = args.epochs or scfg["epochs"]
         batch_size  = scfg["batch_size"]
@@ -360,6 +368,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--epochs",   type=int, default=None)
     p.add_argument("--data-dir", dest="data_dir", default=None)
     p.add_argument("--quick-test", action="store_true")
+    p.add_argument("--kaggle", action="store_true",
+                   help="GPU training with more clips and longer sequences")
     return p
 
 

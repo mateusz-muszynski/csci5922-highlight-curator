@@ -48,6 +48,7 @@ def run_stage_jersey(args: argparse.Namespace) -> None:
     sub = jersey_parser().parse_args([
         "--config", args.config,
         *(["--quick-test"] if args.quick_test else []),
+        *(["--kaggle"]     if getattr(args, "kaggle", False) else []),
         *(["--device", args.device] if args.device else []),
     ])
     train(sub)
@@ -58,6 +59,7 @@ def run_stage_scorer(args: argparse.Namespace) -> None:
     sub = scorer_parser().parse_args([
         "--config", args.config,
         *(["--quick-test"] if args.quick_test else []),
+        *(["--kaggle"]     if getattr(args, "kaggle", False) else []),
         *(["--device", args.device] if args.device else []),
     ])
     train(sub)
@@ -131,7 +133,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--device",     default=None, help="cuda / mps / cpu")
     p.add_argument(
         "--quick-test", action="store_true",
-        help="2-epoch quick test with small data subsets",
+        help="2-epoch quick test with small data subsets (CPU, smoke-test only)",
+    )
+    p.add_argument(
+        "--kaggle", action="store_true",
+        help="GPU training on PIL-rendered synthetic data — all 100 classes, more epochs",
     )
     p.add_argument(
         "--fail-fast", action="store_true",

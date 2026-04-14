@@ -218,12 +218,18 @@ def train(args: argparse.Namespace) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # ── Quick-test overrides ─────────────────────────────────────────────
+    # ── Mode overrides ───────────────────────────────────────────────────
+    kaggle_mode = getattr(args, "kaggle", False)
     if args.quick_test:
-        print("[train_jersey_cnn] QUICK-TEST mode.")
+        print("[train_jersey_cnn] QUICK-TEST mode (CPU smoke-test).")
         epochs      = jcfg["quick_test_epochs"]
         batch_size  = jcfg["quick_test_batch_size"]
         max_samples = jcfg["quick_test_samples"]
+    elif kaggle_mode:
+        print("[train_jersey_cnn] KAGGLE mode — all 100 classes, more epochs.")
+        epochs      = jcfg.get("kaggle_epochs", 15)
+        batch_size  = jcfg.get("kaggle_batch_size", 64)
+        max_samples = jcfg.get("kaggle_samples", 5000)
     else:
         epochs      = args.epochs or jcfg["epochs"]
         batch_size  = jcfg["batch_size"]
@@ -324,6 +330,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--epochs",   type=int, default=None)
     p.add_argument("--data-dir", dest="data_dir", default=None)
     p.add_argument("--quick-test", action="store_true")
+    p.add_argument("--kaggle", action="store_true",
+                   help="GPU training on PIL-rendered synthetic data (all 100 classes)")
     return p
 
 
