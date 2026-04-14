@@ -53,13 +53,24 @@ class JerseyReader:
     -----
     reader = JerseyReader(model_path="models/jersey_cnn.pt")
     number, confidence = reader.read(crop_bgr)
-    # returns (None, 0.0) when orientation filter rejects the crop
-    # or confidence < threshold.
+    # returns (None, 0.0) when orientation filter rejects the crop,
+    # color hint filter rejects the crop, or confidence < threshold.
+
+    color_hint : "dark" | "light" | None
+        When set, crops whose average brightness does not match the hint
+        are rejected before the CNN runs. Useful when the target player
+        wears a distinctively dark (e.g. navy/black) or light (white)
+        jersey and the opposing team wears the other colour.
+        dark  → rejects crops with mean V (HSV) > dark_brightness_threshold
+        light → rejects crops with mean V (HSV) < (255 - dark_brightness_threshold)
     """
 
     # ImageNet normalisation (backbone was pretrained on ImageNet)
     _MEAN = (0.485, 0.456, 0.406)
     _STD  = (0.229, 0.224, 0.225)
+
+    # Mean HSV-V threshold below which a crop is considered "dark"
+    _DARK_BRIGHTNESS_THRESHOLD: int = 85
 
     def __init__(
         self,
@@ -69,6 +80,7 @@ class JerseyReader:
         conf_threshold: float = 0.70,
         orientation_enabled: bool = True,
         facing_threshold: float = 0.35,
+        color_hint: Optional[str] = None,
         device: Optional[str] = None,
     ) -> None:
         self.num_classes = num_classes
@@ -76,6 +88,7 @@ class JerseyReader:
         self.conf_threshold = conf_threshold
         self.orientation_enabled = orientation_enabled
         self.facing_threshold = facing_threshold
+        self.color_hint = color_hint  # "dark" | "light" | None
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model = JerseyCNN(num_classes=num_classes, pretrained=False)
@@ -118,6 +131,9 @@ class JerseyReader:
         if self.orientation_enabled and self._is_rear_facing(crop_bgr):
             return None, 0.0
 
+        if self.color_hint and not self._matches_color_hint(crop_bgr):
+            return None, 0.0
+
         tensor = self._preprocess(crop_bgr)
         with torch.no_grad():
             logits = self.model(tensor)
@@ -156,6 +172,30 @@ class JerseyReader:
         crop_rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
         tensor = self._transform(crop_rgb).unsqueeze(0).to(self.device)
         return tensor
+
+    def _matches_color_hint(self, crop_bgr: np.ndarray) -> bool:
+        """
+        Return True if the crop's dominant jersey colour matches self.color_hint.
+
+        Measures the mean HSV Value channel over the middle torso band of the
+        crop (rows 25%–65%), which is where the jersey number lives.
+
+        dark  → mean V < _DARK_BRIGHTNESS_THRESHOLD
+        light → mean V > (255 - _DARK_BRIGHTNESS_THRESHOLD)
+        """
+        if crop_bgr is None or crop_bgr.size == 0:
+            return True  # can't tell — don't filter
+
+        h, w = crop_bgr.shape[:2]
+        band = crop_bgr[int(h * 0.25): int(h * 0.65), :, :]
+        hsv = cv2.cvtColor(band, cv2.COLOR_BGR2HSV)
+        mean_v = float(hsv[:, :, 2].mean())
+
+        if self.color_hint == "dark":
+            return mean_v < self._DARK_BRIGHTNESS_THRESHOLD
+        if self.color_hint == "light":
+            return mean_v > (255 - self._DARK_BRIGHTNESS_THRESHOLD)
+        return True
 
     def _is_rear_facing(self, crop_bgr: np.ndarray) -> bool:
         """

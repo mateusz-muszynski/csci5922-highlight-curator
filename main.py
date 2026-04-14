@@ -49,6 +49,7 @@ def run_pipeline(
     frame_skip: int = 1,
     clip_length_override: Optional[int] = None,
     clip_stride_override: Optional[int] = None,
+    jersey_color: Optional[str] = None,
 ) -> str:
     """
     Execute the four-stage pipeline end-to-end.
@@ -85,6 +86,8 @@ def run_pipeline(
     )
 
     jr_cfg = cfg["jersey_reader"]
+    # color_hint: CLI/notebook arg takes priority, then config, then None
+    color_hint = jersey_color or jr_cfg.get("color_hint") or None
     reader = JerseyReader(
         model_path=_abs(jr_cfg["model_path"]),
         num_classes=jr_cfg["num_classes"],
@@ -92,8 +95,11 @@ def run_pipeline(
         conf_threshold=jr_cfg["conf_threshold"],
         orientation_enabled=jr_cfg["orientation_filter"]["enabled"],
         facing_threshold=jr_cfg["orientation_filter"]["facing_threshold"],
+        color_hint=color_hint,
         device=device,
     )
+    if color_hint:
+        print(f"[Pipeline] Jersey colour hint: {color_hint} (V threshold={JerseyReader._DARK_BRIGHTNESS_THRESHOLD})")
 
     tr_cfg = cfg["tracker"]
     tracker = PlayerTracker(
@@ -247,6 +253,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Override LSTM clip length in frames (default from config)")
     p.add_argument("--clip-stride", type=int, default=None, dest="clip_stride",
                    help="Override LSTM clip stride in frames (default from config)")
+    p.add_argument("--jersey-color", default=None, dest="jersey_color",
+                   choices=["dark", "light"],
+                   help="Filter crops by jersey brightness: 'dark' or 'light'")
     return p
 
 
@@ -264,4 +273,5 @@ if __name__ == "__main__":
         frame_skip=args.frame_skip,
         clip_length_override=args.clip_length,
         clip_stride_override=args.clip_stride,
+        jersey_color=args.jersey_color,
     )
