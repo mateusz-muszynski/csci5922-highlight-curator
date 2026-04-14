@@ -56,7 +56,20 @@ def download_detection(data_dir: Path, username: str, password: str) -> None:
 
 
 def download_jersey(data_dir: Path, username: str, password: str) -> None:
-    """Download SoccerNet Jersey Number Recognition dataset."""
+    """
+    Download SoccerNet Jersey Number Recognition dataset and normalise
+    it to the folder structure expected by JerseyDataset:
+
+        data/soccernet_jersey/
+            <jersey_number>/   ← two-digit string, e.g. "06", "23"
+                img_001.jpg
+                ...
+
+    SoccerNet jersey-2023 ships its images already in per-class folders,
+    but the top-level layout after extraction can vary.  This function
+    locates the actual class directories regardless of nesting depth.
+    """
+    import shutil
     from SoccerNet.Downloader import SoccerNetDownloader
 
     dest = data_dir / "soccernet_jersey"
@@ -67,9 +80,41 @@ def download_jersey(data_dir: Path, username: str, password: str) -> None:
     mySN.password = password
 
     print("[download] Downloading SoccerNet Jersey Number Recognition dataset...")
-    mySN.downloadDataTask(task="jersey-2023", split=["train", "valid", "test"],
-                          verbose=True)
-    print(f"[download] Jersey data saved to {dest}")
+    # Download train split only — valid/test add GB without improving training
+    mySN.downloadDataTask(task="jersey-2023", split=["train"], verbose=True)
+    print(f"[download] Raw download complete → {dest}")
+
+    # ── Normalise folder structure ────────────────────────────────────────
+    # Walk the download tree; any directory whose name parses as 00–99
+    # and contains images is a class dir.  Move images up to dest/<label>/.
+    moved = 0
+    for root, dirs, files in os.walk(dest):
+        root_path = Path(root)
+        if root_path == dest:
+            continue
+        try:
+            label = int(root_path.name)
+        except ValueError:
+            continue
+        if not (0 <= label <= 99):
+            continue
+        imgs = [f for f in files if f.lower().endswith((".jpg", ".jpeg", ".png"))]
+        if not imgs:
+            continue
+        target = dest / f"{label:02d}"
+        target.mkdir(exist_ok=True)
+        for img in imgs:
+            src = root_path / img
+            dst = target / img
+            if not dst.exists():
+                shutil.move(str(src), str(dst))
+                moved += 1
+
+    total = sum(
+        len(list(p.glob("*.jpg")) + list(p.glob("*.png")))
+        for p in dest.iterdir() if p.is_dir()
+    )
+    print(f"[download] Jersey data normalised → {dest}  ({total:,} images, {moved} moved)")
 
 
 def download_actions(data_dir: Path, username: str, password: str) -> None:
