@@ -178,6 +178,12 @@ def run_pipeline(
     if debug_writer is not None:
         debug_writer.__exit__(None, None, None)
 
+    # Free detector + reader GPU memory before loading the scorer
+    del detector, reader
+    import torch
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     # Print jersey number sighting summary
     if jersey_counter:
         top = sorted(jersey_counter.items(), key=lambda x: -x[1])[:10]

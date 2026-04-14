@@ -334,14 +334,16 @@ def train(args: argparse.Namespace) -> None:
     )
     val_ds.dataset.augment = False  # type: ignore
 
+    # Kaggle has limited CPU RAM — cap workers to avoid system OOM
+    num_workers = 0 if args.quick_test else (2 if kaggle_mode else scfg["num_workers"])
     train_loader = DataLoader(
         train_ds, batch_size=batch_size, shuffle=True,
-        num_workers=scfg["num_workers"] if not args.quick_test else 0,
+        num_workers=num_workers,
         pin_memory=(device != "cpu"),
     )
     val_loader = DataLoader(
         val_ds, batch_size=batch_size, shuffle=False,
-        num_workers=scfg["num_workers"] if not args.quick_test else 0,
+        num_workers=num_workers,
         pin_memory=(device != "cpu"),
     )
 

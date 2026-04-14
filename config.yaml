@@ -154,11 +154,11 @@ training:
     quick_test_clips: 30
     quick_test_batch_size: 1
     quick_test_clip_length: 16
-    # ── kaggle (synthetic GPU): more clips, longer sequences ─────────────
+    # ── kaggle (synthetic GPU): more clips, shorter sequences to avoid OOM ─
     kaggle_epochs: 15
-    kaggle_clips: 300                       # 300 clips (150 pos / 150 neg)
-    kaggle_batch_size: 4
-    kaggle_clip_length: 32
+    kaggle_clips: 200                       # 200 clips (100 pos / 100 neg)
+    kaggle_batch_size: 2                    # ResNet-50 is large; keep batch small
+    kaggle_clip_length: 16                  # 16 frames × batch 2 = safe on T4
     # ── kaggle-full: real SoccerNet data ─────────────────────────────────
     full_epochs: 30
     full_batch_size: 8

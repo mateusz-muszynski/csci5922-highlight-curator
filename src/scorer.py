@@ -71,11 +71,20 @@ class ScorerLSTM(nn.Module):
         """
         x: (B, T, C, H, W)
         returns: (B,) scores
+
+        Frames are processed through the backbone in mini-chunks of
+        BACKBONE_CHUNK_SIZE to cap peak GPU memory regardless of clip length.
         """
         B, T, C, H, W = x.shape
-        # Reshape to (B*T, C, H, W) for backbone
-        x = x.view(B * T, C, H, W)
-        feats = self.backbone(x)           # (B*T, 2048, 1, 1)
+        x_flat = x.view(B * T, C, H, W)
+
+        # Process backbone in chunks to avoid OOM on long clips
+        CHUNK = 16  # frames per chunk through ResNet-50
+        feat_chunks = []
+        for start in range(0, B * T, CHUNK):
+            chunk = x_flat[start: start + CHUNK]
+            feat_chunks.append(self.backbone(chunk))  # (chunk, 2048, 1, 1)
+        feats = torch.cat(feat_chunks, dim=0)          # (B*T, 2048, 1, 1)
         feats = feats.view(B, T, self.feature_dim)
 
         out, _ = self.lstm(feats)          # (B, T, hidden*2)
