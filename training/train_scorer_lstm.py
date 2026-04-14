@@ -279,6 +279,7 @@ def train(args: argparse.Namespace) -> None:
     # ── Mode overrides ───────────────────────────────────────────────────
     kaggle_mode      = getattr(args, "kaggle",      False)
     kaggle_full_mode = getattr(args, "kaggle_full", False)
+    data_dir         = args.data_dir or scfg["data_dir"]
 
     if args.quick_test:
         print("[train_scorer_lstm] QUICK-TEST mode (CPU smoke-test).")
@@ -309,7 +310,6 @@ def train(args: argparse.Namespace) -> None:
         batch_size  = scfg["batch_size"]
         max_clips   = None
         clip_length = scfg["clip_length_frames"]
-    data_dir    = args.data_dir or scfg["data_dir"]
 
     # ── Dataset ──────────────────────────────────────────────────────────
     full_ds = ClipDataset(
