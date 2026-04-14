@@ -311,7 +311,7 @@ def train(args: argparse.Namespace) -> None:
         model.parameters(), lr=scfg["lr"], weight_decay=scfg["weight_decay"]
     )
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="max", factor=0.5, patience=3, verbose=True
+        optimizer, mode="max", factor=0.5, patience=3
     )
     writer = SummaryWriter(log_dir=str(log_dir))
 
