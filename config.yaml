@@ -22,7 +22,7 @@ jersey_reader:
   backbone: "resnet18"
   num_classes: 100                          # digit pairs 00–99
   input_size: [64, 128]                     # [width, height] of player crop
-  conf_threshold: 0.70                      # min softmax confidence to trust a read
+  conf_threshold: 0.30                      # min softmax confidence to trust a read
   color_hint: null                          # "dark" | "light" | null — filter crops by jersey colour
   orientation_filter:
     enabled: true

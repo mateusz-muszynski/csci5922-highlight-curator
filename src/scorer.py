@@ -208,6 +208,10 @@ class HighlightScorer:
         """
         Score all sliding-window clips in *video_path*.
 
+        Streams frames directly from disk — never loads the full video into RAM.
+        Only windows that contain the target jersey are scored by the LSTM;
+        all others are skipped immediately, saving both time and memory.
+
         Parameters
         ----------
         video_path     : path to the source video
@@ -219,31 +223,54 @@ class HighlightScorer:
         """
         cap = cv2.VideoCapture(video_path)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        all_frames: List[np.ndarray] = []
-
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            all_frames.append(frame)
         cap.release()
 
         clips: List[HighlightClip] = []
+        windows = list(range(0, total_frames - self.clip_length + 1, self.clip_stride))
+        print(f"[Scorer] {total_frames} frames · {len(windows)} windows to evaluate")
 
-        for start in range(0, total_frames - self.clip_length + 1, self.clip_stride):
+        for win_idx, start in enumerate(windows):
             end = start + self.clip_length
-            clip_frames = all_frames[start:end]
+
+            # Skip window immediately if target jersey not present — saves LSTM time
+            contains_target = self._clip_contains_target(start, end, track_history)
+            if not contains_target:
+                continue
+
+            # Stream just this window's frames from disk
+            clip_frames = self._read_clip_frames(video_path, start, end)
+            if not clip_frames:
+                continue
 
             score = self._score_clip(clip_frames)
             score = self._apply_context_boosts(score, start, end, track_history)
 
-            contains_target = self._clip_contains_target(start, end, track_history)
+            if score >= self.highlight_threshold:
+                clips.append(HighlightClip(start, end, score, contains_target=True))
 
-            if score >= self.highlight_threshold and contains_target:
-                clips.append(HighlightClip(start, end, score, contains_target))
+            if win_idx % 50 == 0:
+                print(f"[Scorer]   window {win_idx}/{len(windows)}  clips so far: {len(clips)}")
 
         merged = self._merge_clips(clips, total_frames)
         return sorted(merged, key=lambda c: c.start_frame)
+
+    def _read_clip_frames(
+        self,
+        video_path: str,
+        start: int,
+        end: int,
+    ) -> List[np.ndarray]:
+        """Seek to *start* and read exactly (end - start) frames. No full-video load."""
+        cap = cv2.VideoCapture(video_path)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start)
+        frames: List[np.ndarray] = []
+        for _ in range(end - start):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(frame)
+        cap.release()
+        return frames
 
     def assemble(
         self,
